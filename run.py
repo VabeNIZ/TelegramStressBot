@@ -13,14 +13,15 @@ def start_command(message):
         CurrentWord = DBChangeWord(message.chat.id)
         bot.send_message(message.chat.id, 'Привет, я стрессбот! Давай так: я тебе буду отправлять слова, а ты мне их будешь возвращать, но с одним ударным звуком. \r\nНапример: \r\n-звонить\r\n-звонИть \r\nЕсли я в группе, то, чтобы я мог проверить ваш ответ, пишите его при пересылке моего сообщения с помощью "Reply"')
 #        bot.send_message(message.chat.id, config.listof_testwords[CurrentWord])
-        WordSplit(CurrentWord, message.chat.id)
+        mmessage = WordSplit(CurrentWord, message.chat.id)
+        DBSetLastMID(message.chat.id, mmessage.message_id, mmessage.text)
 
 @bot.message_handler(commands=['cword'])
 def cword_command(message):
     if ((message.chat.type == 'group' or message.chat.type == 'supergroup') and message.text == '/cword@EGEStress_bot') or message.chat.type == 'private':
         CurrentWord = DBWhichWord(message.chat.id)
-        WordSplit(CurrentWord, message.chat.id)
-#        bot.send_message(message.chat.id, config.listof_testwords[CurrentWord])
+        mmessage = WordSplit(CurrentWord, message.chat.id)
+        DBSetLastMID(message.chat.id, mmessage.message_id, mmessage.text)
 
 @bot.message_handler(commands=['stats'])
 def stats_command(message):
@@ -29,40 +30,38 @@ def stats_command(message):
 
 @bot.message_handler(content_types=['text'])
 def WordCheck(message):
-    print(message.text)
     usedword = message.text.split(' ')[0]
     correct = DBWordCheck(message.chat.id, usedword)
     if correct == 1:
         bot.send_message(message.chat.id, 'Верно!')
         DBAddToCounter(message.chat.id, True)
-        CurrentWord = DBChangeWord(message.chat.id)
-#        bot.send_message(message.chat.id, config.listof_testwords[CurrentWord])
-        WordSplit(CurrentWord, message.chat.id)
     elif correct == 2:
         DBAddUser(message.chat.id)
     else:
         bot.send_message(message.chat.id, 'Нет! Надо вот так: ' + config.listof_correctwords[correct])
         DBAddToCounter(message.chat.id, False)
-        CurrentWord = DBChangeWord(message.chat.id)
-#        bot.send_message(message.chat.id, config.listof_testwords[CurrentWord])
-        WordSplit(CurrentWord, message.chat.id)
+    CurrentWord = DBChangeWord(message.chat.id)
+    mmessage = WordSplit(CurrentWord, message.chat.id)
+    bot.edit_message_text(chat_id=message.chat.id, message_id=DBLastMID(message.chat.id), text = str(DBLastMES(message.chat.id)) + ' | Вы ввели: ' + usedword)
+    DBSetLastMID(message.chat.id, mmessage.message_id, mmessage.text)
 
 @bot.callback_query_handler(func=lambda call:True)
 def ButtonWordCheck(call):
-#    if call.message.message_id == DBLastMID(call.message.chat.id):
-    correct = DBWordCheck(call.message.chat.id, call.data)
-    if correct == 1:
-        bot.send_message(call.message.chat.id, 'Верно!')
-        DBAddToCounter(call.message.chat.id, True)
-    elif correct == 2:
-        DBAddUser(call.message.chat.id)
-        return
-    else:
-        bot.send_message(call.message.chat.id, 'Нет! Надо вот так: ' + config.listof_correctwords[correct])
-        DBAddToCounter(call.message.chat.id, False)
-    CurrentWord = DBChangeWord(call.message.chat.id)
-    #bot.send_message(call.message.chat.id, config.listof_testwords[CurrentWord])
-    WordSplit(CurrentWord, call.message.chat.id)
+    if call.message.message_id == DBLastMID(call.message.chat.id):
+        correct = DBWordCheck(call.message.chat.id, call.data)
+        if correct == 1:
+            bot.send_message(call.message.chat.id, 'Верно!')
+            DBAddToCounter(call.message.chat.id, True)
+        elif correct == 2:
+            DBAddUser(call.message.chat.id)
+            return
+        else:
+            bot.send_message(call.message.chat.id, 'Нет! Надо вот так: ' + config.listof_correctwords[correct])
+            DBAddToCounter(call.message.chat.id, False)
+        CurrentWord = DBChangeWord(call.message.chat.id)
+        mmessage = WordSplit(CurrentWord, call.message.chat.id)
+        bot.edit_message_text(chat_id=call.message.chat.id, message_id=DBLastMID(call.message.chat.id), text=DBLastMES(call.message.chat.id) + ' | Вы ввели: ' + call.data)
+        DBSetLastMID(call.message.chat.id, mmessage.message_id, mmessage.text)
 
 def DBAddUser(user):
     connection = sqlite3.connect('currentwords.db')
@@ -148,14 +147,30 @@ def DBLastMID(user):
     cursor = connection.cursor()
     cursor.execute('SELECT LastMID FROM hooy WHERE User = ?', (user,))
     lmid = cursor.fetchone()[0]
+    connection.commit()
+    connection.close()
     return lmid
 
+def DBLastMES(user):
+    connection = sqlite3.connect('currentwords.db')
+    cursor = connection.cursor()
+    cursor.execute('SELECT LastMES FROM hooy WHERE User = ?', (user,))
+    lmes = cursor.fetchone()[0]
+    connection.commit()
+    connection.close()
+    return lmes
+
+def DBSetLastMID(user, mid, text):
+    connection = sqlite3.connect('currentwords.db')
+    cursor = connection.cursor()
+    cursor.execute('UPDATE hooy SET LastMID = ? WHERE User = ?', (mid, user))
+    cursor.execute('UPDATE hooy SET LastMES = ? WHERE User = ?', (text, user))
+    connection.commit()
+    connection.close()
 
 def WordSplit(word, chatid):
-
     a = 0
     buttonlist = []
-    cbbuttonlist = []
     cword = config.listof_testwords[word]
     keyboard = types.InlineKeyboardMarkup(row_width=3)
     for i in range(len(cword)):
@@ -182,8 +197,6 @@ def WordSplit(word, chatid):
         elif a == 7:
             callback_button7 = types.InlineKeyboardButton(text=i, callback_data=i)
         a += 1
-#        cbbuttonlist.append(callback_button)
-#        keyboard.add(callback_button)
     a -= 1
     if a == 0:
         keyboard.add(callback_button0)
@@ -201,7 +214,7 @@ def WordSplit(word, chatid):
         keyboard.add(callback_button0, callback_button1, callback_button2, callback_button3, callback_button4, callback_button5, callback_button6)
     elif a == 7:
         keyboard.add(callback_button0, callback_button1, callback_button2, callback_button3, callback_button4, callback_button5, callback_button6, callback_button7)
-    bot.send_message(chatid, cword, reply_markup=keyboard)
-    return
+    mmessage = bot.send_message(chatid, cword, reply_markup=keyboard)
+    return mmessage
 
 bot.polling(none_stop=True)
